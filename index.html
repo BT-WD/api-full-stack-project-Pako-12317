@@ -3,9 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>API Full Stack Project</title>
+    <title>Global Country Explorer</title>
+    <link rel="stylesheet" href="index.css">
   </head>
   <body>
-    <!-- You code goes here-->
+    <header>
+      <h1>Global Country Explorer</h1>
+      <div class="controls">
+        <input type="text" id="search" placeholder="Search by country name...">
+        <select id="region-filter">
+          <option value="">All Regions</option>
+          <option value="Africa">Africa</option>
+          <option value="Americas">Americas</option>
+          <option value="Asia">Asia</option>
+          <option value="Europe">Europe</option>
+          <option value="Oceania">Oceania</option>
+        </select>
+        <button id="refresh-btn" class="refresh-btn">Refresh Data</button>
+      </div>
+    </header>
+    <main>
+      <div id="loading" class="loading">Loading countries...</div>
+      <div id="error" class="error hidden"></div>
+      <div id="country-list" class="country-list"></div>
+      <div id="country-detail" class="country-detail hidden"></div>
+    </main>
+    <script src="index.js"></script>
   </body>
 </html>
