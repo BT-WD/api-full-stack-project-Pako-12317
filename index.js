@@ -2,6 +2,7 @@ const API_BASE = 'https://api.countrylayer.com/v2';
 const API_KEY = 'e1702d6b1241ed968f91928662727870';
 const WEATHER_API_KEY = '7c5b2f720cef6fbd5b7025ff803aa3b5'; // OpenWeatherMap API key
 const WEATHER_API_BASE = 'https://api.openweathermap.org/data/2.5';
+const TRAVEL_BRIEFING_API = 'https://travelbriefing.org';
 let countries = [];
 let filteredCountries = [];
 
@@ -71,7 +72,8 @@ function displayCountries(countries) {
 }
 
 // Show country detail
-async function showCountryDetail(country) {
+function showCountryDetail(country) {
+  console.log('Showing detail for:', country.name);
   countryList.classList.add('hidden');
   countryDetail.classList.remove('hidden');
   const favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
@@ -90,42 +92,150 @@ async function showCountryDetail(country) {
     <p><strong>Alpha 3 Code:</strong> ${country.alpha3Code}</p>
     <p><strong>Top Level Domain:</strong> ${country.topLevelDomain ? country.topLevelDomain.join(', ') : 'N/A'}</p>
     <p><strong>Calling Codes:</strong> ${country.callingCodes ? country.callingCodes.join(', ') : 'N/A'}</p>
-  `;
-  
-  // Fetch weather data if capital exists
-  if (country.capital && WEATHER_API_KEY !== 'YOUR_OPENWEATHERMAP_API_KEY') {
-    try {
-      const weatherResponse = await fetch(`${WEATHER_API_BASE}/weather?q=${encodeURIComponent(country.capital)}&appid=${WEATHER_API_KEY}&units=metric`);
-      if (weatherResponse.ok) {
-        const weatherData = await weatherResponse.json();
-        html += `
-          <h3>Weather in ${country.capital}</h3>
-          <p><strong>Temperature:</strong> ${weatherData.main.temp}°C (feels like ${weatherData.main.feels_like}°C)</p>
-          <p><strong>Weather:</strong> ${weatherData.weather[0].description}</p>
-          <p><strong>Humidity:</strong> ${weatherData.main.humidity}%</p>
-          <p><strong>Wind Speed:</strong> ${weatherData.wind.speed} m/s</p>
-        `;
-      }
-    } catch (error) {
-      console.error('Error fetching weather:', error);
-    }
-  }
-  
-  // Add travel tips
-  html += `
     <h3>Travel Information</h3>
-    <p><strong>General Tips:</strong> Always check current travel advisories before planning your trip. Visa requirements vary by nationality.</p>
-    <p><strong>Emergency Numbers:</strong> Police: 911 (US-style) or local emergency numbers. Check with your embassy for specific contacts.</p>
-    <p><strong>Health:</strong> Consult a travel health clinic for vaccinations and health advice specific to this destination.</p>
+    <p>Loading tips...</p>
   `;
   
   countryDetail.innerHTML = html;
+  
+  // Load tips asynchronously
+  loadTips(country);
 }
 
-// Go back to list
-function goBack() {
-  countryDetail.classList.add('hidden');
-  countryList.classList.remove('hidden');
+// Load tips asynchronously
+async function loadTips(country) {
+  // Fetch weather data if capital exists
+  if (country.capital && WEATHER_API_KEY !== 'YOUR_OPENWEATHERMAP_API_KEY') {
+    const weatherCacheKey = `weather_${country.capital}`;
+    const weatherCache = localStorage.getItem(weatherCacheKey);
+    const weatherTimestamp = localStorage.getItem(`${weatherCacheKey}_timestamp`);
+    const WEATHER_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+    
+    let weatherData = null;
+    if (weatherCache && weatherTimestamp && (Date.now() - parseInt(weatherTimestamp)) < WEATHER_CACHE_DURATION) {
+      weatherData = JSON.parse(weatherCache);
+    } else {
+      try {
+        const weatherResponse = await fetch(`${WEATHER_API_BASE}/weather?q=${encodeURIComponent(country.capital)}&appid=${WEATHER_API_KEY}&units=metric`);
+        if (weatherResponse.ok) {
+          weatherData = await weatherResponse.json();
+          localStorage.setItem(weatherCacheKey, JSON.stringify(weatherData));
+          localStorage.setItem(`${weatherCacheKey}_timestamp`, Date.now().toString());
+        }
+      } catch (error) {
+        console.error('Error fetching weather:', error);
+      }
+    }
+    
+    if (weatherData) {
+      const weatherHtml = `
+        <h3>Weather in ${country.capital}</h3>
+        <p><strong>Temperature:</strong> ${weatherData.main.temp}°C (feels like ${weatherData.main.feels_like}°C)</p>
+        <p><strong>Weather:</strong> ${weatherData.weather[0].description}</p>
+        <p><strong>Humidity:</strong> ${weatherData.main.humidity}%</p>
+        <p><strong>Wind Speed:</strong> ${weatherData.wind.speed} m/s</p>
+      `;
+      // Append to existing html
+      const existing = countryDetail.innerHTML;
+      countryDetail.innerHTML = existing.replace('<h3>Travel Information</h3>\n    <p>Loading tips...</p>', weatherHtml + '<h3>Travel Information</h3>\n    <p>Loading tips...</p>');
+    }
+  }
+  
+  // Fetch travel tips with caching
+  const tipsCacheKey = `tips_${country.alpha2Code}`;
+  const tipsCache = localStorage.getItem(tipsCacheKey);
+  const tipsTimestamp = localStorage.getItem(`${tipsCacheKey}_timestamp`);
+  const TIPS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+  
+  let tipsData = null;
+  if (tipsCache && tipsTimestamp && (Date.now() - parseInt(tipsTimestamp)) < TIPS_CACHE_DURATION) {
+    tipsData = JSON.parse(tipsCache);
+  } else {
+    try {
+      const tipsResponse = await fetch(`${TRAVEL_BRIEFING_API}/${country.alpha2Code.toLowerCase()}.json`);
+      if (tipsResponse.ok) {
+        tipsData = await tipsResponse.json();
+        localStorage.setItem(tipsCacheKey, JSON.stringify(tipsData));
+        localStorage.setItem(`${tipsCacheKey}_timestamp`, Date.now().toString());
+      } else {
+        // Fallback to region-based tips
+        tipsData = getRegionTips(country.region);
+        // Cache the fallback
+        localStorage.setItem(tipsCacheKey, JSON.stringify(tipsData));
+        localStorage.setItem(`${tipsCacheKey}_timestamp`, Date.now().toString());
+      }
+    } catch (error) {
+      console.error('Error fetching travel tips:', error);
+      // Fallback to region-based tips
+      tipsData = getRegionTips(country.region);
+      // Cache the fallback
+      localStorage.setItem(tipsCacheKey, JSON.stringify(tipsData));
+      localStorage.setItem(`${tipsCacheKey}_timestamp`, Date.now().toString());
+    }
+  }
+  
+  let tipsHtml = '';
+  if (tipsData) {
+    const safety = tipsData.safety || {};
+    const health = tipsData.health || {};
+    const currency = tipsData.currency || {};
+    const language = tipsData.language || [];
+    
+    tipsHtml = `
+      <p><strong>Safety:</strong> ${safety.advisory || 'No specific advisory.'}</p>
+      <p><strong>Currency:</strong> ${currency.name || 'N/A'} (${currency.code || ''})</p>
+      <p><strong>Languages:</strong> ${language.map(l => l.language).join(', ') || 'N/A'}</p>
+      <p><strong>Health:</strong> ${health.advisory || 'Consult a travel health clinic.'}</p>
+    `;
+  } else {
+    tipsHtml = `<p>Travel tips not available for this country.</p>`;
+  }
+  
+  // Replace the loading text
+  const existing = countryDetail.innerHTML;
+  countryDetail.innerHTML = existing.replace('<h3>Travel Information</h3>\n    <p>Loading tips...</p>', '<h3>Travel Information</h3>' + tipsHtml);
+}
+
+// Get region-based tips as fallback
+function getRegionTips(region) {
+  const tips = {
+    Africa: {
+      safety: { advisory: 'Check current travel advisories. Some areas may have security concerns.' },
+      health: { advisory: 'Vaccinations for yellow fever, hepatitis A, typhoid recommended in many areas. Malaria risk in some regions.' },
+      currency: { name: 'Varies by country', code: '' },
+      language: [{ language: 'Varies (English, French, Arabic, etc.)' }]
+    },
+    Americas: {
+      safety: { advisory: 'Standard safety precautions. Check local advisories for specific areas.' },
+      health: { advisory: 'Routine vaccinations recommended. Some areas have Zika or dengue risk.' },
+      currency: { name: 'Varies (USD, CAD, etc.)', code: '' },
+      language: [{ language: 'Varies (English, Spanish, Portuguese, etc.)' }]
+    },
+    Asia: {
+      safety: { advisory: 'Varies widely. Check advisories for specific countries.' },
+      health: { advisory: 'Vaccinations for hepatitis A, typhoid, Japanese encephalitis in some areas. Malaria in rural regions.' },
+      currency: { name: 'Varies by country', code: '' },
+      language: [{ language: 'Varies (Mandarin, Hindi, Arabic, etc.)' }]
+    },
+    Europe: {
+      safety: { advisory: 'Generally safe. Standard precautions apply.' },
+      health: { advisory: 'Routine vaccinations recommended. Tick-borne diseases in some areas.' },
+      currency: { name: 'Euro (most countries)', code: 'EUR' },
+      language: [{ language: 'Varies (English, French, German, etc.)' }]
+    },
+    Oceania: {
+      safety: { advisory: 'Generally safe. Check for natural disaster risks.' },
+      health: { advisory: 'Routine vaccinations. Some areas have mosquito-borne diseases.' },
+      currency: { name: 'Varies (AUD, NZD, etc.)', code: '' },
+      language: [{ language: 'English, indigenous languages' }]
+    }
+  };
+  return tips[region] || {
+    safety: { advisory: 'Check local travel advisories.' },
+    health: { advisory: 'Consult a travel health clinic.' },
+    currency: { name: 'Local currency', code: '' },
+    language: [{ language: 'Local languages' }]
+  };
 }
 
 // Toggle favorite
@@ -145,12 +255,21 @@ function toggleFavorite(code) {
   btn.textContent = isFavorite ? 'Remove from Favorites' : 'Add to Favorites';
 }
 
+// Go back to country list
+function goBack() {
+  countryDetail.classList.add('hidden');
+  countryList.classList.remove('hidden');
+}
+
 // Search and filter
 function filterCountries() {
   const searchTerm = searchInput.value.toLowerCase();
   const region = regionFilter.value;
   filteredCountries = countries.filter(country => {
-    const matchesSearch = country.name.common.toLowerCase().includes(searchTerm);
+    const matchesName = country.name.toLowerCase().includes(searchTerm);
+    const matchesCapital = country.capital ? country.capital.toLowerCase().includes(searchTerm) : false;
+    const matchesCode = country.alpha2Code.toLowerCase().includes(searchTerm) || country.alpha3Code.toLowerCase().includes(searchTerm);
+    const matchesSearch = matchesName || matchesCapital || matchesCode;
     const matchesRegion = !region || country.region === region;
     return matchesSearch && matchesRegion;
   });
